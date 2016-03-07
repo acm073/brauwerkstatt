@@ -36,6 +36,8 @@
 
 // 2. Temperature Sensor
 #define TEMP_SENSOR_PIN 5
+#define TEMP_SENSOR_RESOLUTION 12
+#define TEMP_SENSOR_CONVERSION_TIME 750
 
 // 3. RF Transmitter (to switch heater)
 #define RF_TRANSMITTER_PIN 8

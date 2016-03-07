@@ -10,15 +10,17 @@
  */
 BrewProcess::BrewProcess(DallasTemperature* temp_sens, NewRemoteTransmitter* rf_sender)
 {  
-  _temp_sensor = temp_sens;
+  _temp_stat.temp_sensor = temp_sens;
   _rf_sender = rf_sender;
 }
 
+//====================================================================================================
+// Public interface
+//====================================================================================================
 void BrewProcess::init()
 {
   // Init Temp Sensors
-  set_sensor_resolution();
-  _temp_sensor->begin();
+  setup_temp_sensor();
 
   // Init Heater
   turn_off_heater();
@@ -28,10 +30,16 @@ void BrewProcess::init()
  * Control routine of brew process
  * Just calls state updates in the right order
  */
-bool BrewProcess::update_process()
+void BrewProcess::update_process()
 {
+  // if we have an error, we do nothing until it has been reset.
+  if (_proc_stat.has_error)
+  {
+    return;
+  }
+  
   // temp reading is done even if process is not running
-  update_sensor_temp();
+  read_temp_sensor();
 
   if (_proc_stat.running)
   {
@@ -40,9 +48,103 @@ bool BrewProcess::update_process()
     update_heater();
     update_printable_name();
   }
-  return true;
+  return;
 }
 
+void BrewProcess::start_second_wash_process()
+{
+  if (!_receipe.loaded)
+  {
+    debug(F("Rezept nicht geladen"));
+  }
+  else
+  {
+    if(!_proc_stat.running)
+    {
+      _proc_stat.current_phase = Phase::SecondWash;
+      _proc_stat.current_step = Step::Start;
+      
+      _proc_stat.proc_start = millis();
+      _proc_stat.phase_start = millis();
+      _proc_stat.current_rast = -1;
+      _proc_stat.running = true;
+      _proc_stat.phase_char = 'N';
+      update_process();
+
+      debug(F("Nachguss initialisiert"));
+    }
+    else
+    {
+      debug(F("Process already running"));
+    }
+  }
+}
+
+void BrewProcess::start_mash_process()
+{
+  if (!_receipe.loaded)
+  {
+    debug(F("Rezept nicht geladen!"));
+  }
+  else
+  {
+    if (!_proc_stat.running)
+    {
+      _proc_stat.current_phase = Phase::MashIn;
+      _proc_stat.current_step = Step::Start;
+      
+      _proc_stat.proc_start = millis();
+      _proc_stat.phase_start = millis();
+      _proc_stat.current_rast = -1;
+      _proc_stat.running = true;
+      _proc_stat.phase_char = 'M';
+      update_process();
+
+      debug(F("Maischen initialisiert"));
+    }
+    else
+    {
+      debug(F("Process already running!"));
+    }
+  }
+}
+
+void BrewProcess::load_receipe()
+{
+  _receipe.anz_rasten = 2;
+
+  _receipe.einmaisch_temp = 30;
+  _receipe.second_wash_temp = 43;
+
+  _receipe.rast_temp[0] = 37;
+  _receipe.rast_temp[1] = 41;
+  //_receipe.rast_temp[2] = 72;
+  //_receipe.rast_temp[3] = 78;
+
+  _receipe.rast_dauer[0] = 1;
+  _receipe.rast_dauer[1] = 1;
+  //_receipe.rast_dauer[2] = 2;
+  //_receipe.rast_dauer[3] = 2;
+
+  _receipe.wuerze_kochdauer = 90;
+  _receipe.anz_hopfengaben = 4;
+  _receipe.hopfengabe_zeit[0] = HOPFENGABE_VWH;
+  _receipe.hopfengabe_zeit[1] = 60;
+  _receipe.hopfengabe_zeit[2] = 15;
+  _receipe.hopfengabe_zeit[3] = HOPFENGABE_WHIRLPOOL;
+
+  _receipe.loaded = true;
+}
+
+/*====================================================================================================
+ * Implementation of state machine / process control
+ * There are one to several methods for each supported process.
+ * Supported Processes are:
+ * - Mashing (done)
+ * - Second wash heating (done)
+ * - Boiling (planned)
+ * - Cooling (planned)
+ * ==================================================================================================== */
 void BrewProcess::update_state_machine()
 {
   switch(_proc_stat.current_phase)
@@ -77,7 +179,7 @@ void BrewProcess::handle_second_wash()
     step_transition(Step::Heat);
     break;
   case Step::Heat:
-    if(_proc_stat.current_temp >= _proc_stat.target_temp)
+    if(_temp_stat.current_temp >= _proc_stat.target_temp)
     {
       debug(F("Nachguss-Temperatur erreicht"));
       step_transition(Step::UserPrompt, PSTR("Beenden?"));
@@ -141,7 +243,7 @@ void BrewProcess::handle_rests()
     step_transition(Step::Heat);
     break;
   case Step::Heat:
-    if(_proc_stat.current_temp >= _proc_stat.target_temp)
+    if(_temp_stat.current_temp >= _proc_stat.target_temp)
     {
       debug(F("Rasttemperatur erreicht"));
       step_transition(Step::Hold);
@@ -151,7 +253,7 @@ void BrewProcess::handle_rests()
     }
     break;
   case Step::Hold:
-    if(rest_timer_over())
+    if(is_rest_timer_over())
     {
       debugnnl(F("Ende Rast "));
       debug(_proc_stat.current_rast);
@@ -189,7 +291,7 @@ void BrewProcess::handle_mash_in()
     break;
   case Step::Heat:
     // check if target temp reached, then move on to UserPrompt
-    if(_proc_stat.current_temp >= _proc_stat.target_temp)
+    if(_temp_stat.current_temp >= _proc_stat.target_temp)
     {
       // reached target temp
       debug(F("Einmaischtemperatur erreicht"));
@@ -299,90 +401,6 @@ void BrewProcess::update_printable_name()
   }
 }
 
-void BrewProcess::start_second_wash_process()
-{
-  if (!_receipe.loaded)
-  {
-    debug(F("Rezept nicht geladen"));
-  }
-  else
-  {
-    if(!_proc_stat.running)
-    {
-      _proc_stat.current_phase = Phase::SecondWash;
-      _proc_stat.current_step = Step::Start;
-      
-      _proc_stat.proc_start = millis();
-      _proc_stat.phase_start = millis();
-      _proc_stat.current_rast = -1;
-      _proc_stat.running = true;
-      _proc_stat.phase_char = 'N';
-      update_process();
-
-      debug(F("Nachguss initialisiert"));
-    }
-    else
-    {
-      debug(F("Process already running"));
-    }
-  }
-}
-
-void BrewProcess::start_mash_process()
-{
-  if (!_receipe.loaded)
-  {
-    debug(F("Rezept nicht geladen!"));
-  }
-  else
-  {
-    if (!_proc_stat.running)
-    {
-      _proc_stat.current_phase = Phase::MashIn;
-      _proc_stat.current_step = Step::Start;
-      
-      _proc_stat.proc_start = millis();
-      _proc_stat.phase_start = millis();
-      _proc_stat.current_rast = -1;
-      _proc_stat.running = true;
-      _proc_stat.phase_char = 'M';
-      update_process();
-
-      debug(F("Maischen initialisiert"));
-    }
-    else
-    {
-      debug(F("Process already running!"));
-    }
-  }
-}
-
-void BrewProcess::load_receipe()
-{
-  _receipe.anz_rasten = 2;
-
-  _receipe.einmaisch_temp = 30;
-  _receipe.second_wash_temp = 43;
-
-  _receipe.rast_temp[0] = 37;
-  _receipe.rast_temp[1] = 41;
-  //_receipe.rast_temp[2] = 72;
-  //_receipe.rast_temp[3] = 78;
-
-  _receipe.rast_dauer[0] = 1;
-  _receipe.rast_dauer[1] = 1;
-  //_receipe.rast_dauer[2] = 2;
-  //_receipe.rast_dauer[3] = 2;
-
-  _receipe.wuerze_kochdauer = 90;
-  _receipe.anz_hopfengaben = 4;
-  _receipe.hopfengabe_zeit[0] = HOPFENGABE_VWH;
-  _receipe.hopfengabe_zeit[1] = 60;
-  _receipe.hopfengabe_zeit[2] = 15;
-  _receipe.hopfengabe_zeit[3] = HOPFENGABE_WHIRLPOOL;
-
-  _receipe.loaded = true;
-}
 
 /*
  * This function implements the heater control algorithm. For now it is a simple 2-point controller.
@@ -399,7 +417,7 @@ void BrewProcess::load_receipe()
  */
 void BrewProcess::update_heater()
 {
-  float temp_diff = _proc_stat.target_temp - _proc_stat.current_temp;
+  float temp_diff = _proc_stat.target_temp - _temp_stat.current_temp;
   switch(_proc_stat.current_step)
   {
   case Step::Heat:
@@ -474,42 +492,70 @@ void BrewProcess::turn_on_heater()
 // ====================================================
 // temperature sensor management
 // ====================================================
-void BrewProcess::update_sensor_temp ()
+void BrewProcess::read_temp_sensor ()
 {
-  if (millis() - _last_temp_read > 10000)
+  if(_temp_stat.error_count > 3 && _temp_stat.error_count < 5)
   {
-    _last_temp_read = millis();
-    DeviceAddress tempDeviceAddress;
-    _temp_sensor->requestTemperatures();
-    
-    // we always read device #0
-    if(_temp_sensor->getAddress(tempDeviceAddress, 0))
+    setup_temp_sensor();
+  }
+  else if (_temp_stat.error_count > 5)
+  {
+    setError(PSTR("Temp Sensor Error"));
+  }
+  if (millis() - _temp_stat.last_read_ms > _config.temp_read_interval)
+  {
+    if (_temp_stat.currently_reading)
     {
-      _proc_stat.current_temp = _temp_sensor->getTempC(tempDeviceAddress);
+      // we are in a conversion cycle
+      if (millis() - _temp_stat.last_conversion_trigger > TEMP_SENSOR_CONVERSION_TIME)
+      {
+        // we're done
+        DeviceAddress tempDeviceAddress;
+        if(_temp_stat.temp_sensor->getAddress(tempDeviceAddress, 0))
+        {
+          float t = _temp_stat.temp_sensor->getTempC(tempDeviceAddress);
+          if(t == 85.0F || t == -127.0F)
+          {
+            debug(F("Got bogus reading"));
+            _temp_stat.error_count++;
+          }
+          else
+          {
+            _temp_stat.current_temp = t;
+            _temp_stat.error_count = 0;
+          }
+        }
+        else
+        {
+          _temp_stat.error_count++;
+        }
+        _temp_stat.currently_reading = false;
+        _temp_stat.last_read_ms = millis();
+      }
     }
     else
     {
-      _proc_stat.current_temp = -1.0;
-    }
+      _temp_stat.temp_sensor->requestTemperatures();
+      _temp_stat.currently_reading = true;
+      _temp_stat.last_conversion_trigger = millis();
+    }    
   }
 }
 
-void BrewProcess::set_sensor_resolution()
+void BrewProcess::setup_temp_sensor()
 {
+  _temp_stat.temp_sensor->setWaitForConversion(false);
+  _temp_stat.temp_sensor->begin();
+
   DeviceAddress tempDeviceAddress;
-  if(_temp_sensor->getAddress(tempDeviceAddress, 0))
+  if(_temp_stat.temp_sensor->getAddress(tempDeviceAddress, 0))
   {
-    _temp_sensor->setResolution(tempDeviceAddress, 11);
+    _temp_stat.temp_sensor->setResolution(tempDeviceAddress, 11);
   }
   else
   {
     debug(F("No temperature sensor found"));
-  } 
-}
-
-void BrewProcess::check_sensors()
-{
-  
+  }
 }
 
 // ====================================================
@@ -521,7 +567,7 @@ void BrewProcess::start_rest_timer()
   _proc_stat.rest_timer = millis();
 }
 
-bool BrewProcess::rest_timer_over()
+bool BrewProcess::is_rest_timer_over()
 {
   return millis() - _proc_stat.rest_timer > _proc_stat.current_rest_duration;
 }

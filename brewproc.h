@@ -39,13 +39,13 @@ public:
   void start_mash_process();
   void start_second_wash_process(); // Nachguss
   void stop_process();
-  bool update_process();
+  void update_process();
 
   bool isRunning() { return _proc_stat.running; };
   char getPhaseChar() { return _proc_stat.phase_char; };
   bool needConfirmation() { return _proc_stat.need_confirmation; };
   void confirm() { _proc_stat.user_confirmed = true; };
-  float getCurrentTemp() { return _proc_stat.current_temp; };
+  float getCurrentTemp() { return _temp_stat.current_temp; };
   float getTargetTemp() { return _proc_stat.target_temp; };
   char* getPhaseName() { return _proc_stat.phase_name; };
   char* getStepName() { return _proc_stat.step_name; };
@@ -75,8 +75,8 @@ public:
 
   bool hasError() { return _proc_stat.has_error; };
   bool hasWarning() { return _proc_stat.has_warning; };
-  char* getMessage1() { return _proc_stat.message1; };
-  char* getMessage2() { return _proc_stat.message2; };
+  char* getErrorMessage() { return _proc_stat.err_message; };
+  char* getWarningMessage() { return _proc_stat.warn_message; };
   void resetError() { _proc_stat.has_error = false; };
   void resetWarning() { _proc_stat.has_warning = false; };
 
@@ -105,7 +105,6 @@ private:
     unsigned long current_rest_duration; // duration for rest phases in minutes
   
     float target_temp; // Temperatur für die aktuelle Phase
-    float current_temp; // Aktuelle Temperatur am Sensor
 
     unsigned long rest_timer;
     
@@ -118,8 +117,8 @@ private:
     // error handling
     bool has_error = false;
     bool has_warning = false;
-    char message1[21];
-    char message2[21];
+    char err_message[21];
+    char warn_message[21];
   };
 
   struct receipe_t {
@@ -145,26 +144,49 @@ private:
     float heater_cook_temp = 99.25F; // when reaching this temp, boiling timer is started
     unsigned int throttled_on_ms = 15000; // amount of time heater is "on" when in throttle mode
     unsigned int throttled_off_ms = 15000; // amount of time heater is "off" when in throttle mode
+    unsigned int temp_read_interval = 5000; // read temperature every x ms
+  };
+
+  struct temp_sensor_t {
+    bool currently_reading;
+    unsigned long last_read_ms = 0;
+    unsigned long last_conversion_trigger = 0;
+    float current_temp; // Aktuelle Temperatur am Sensor
+    DallasTemperature* temp_sensor;
+    byte error_count = 0;
   };
 
   struct heater_stat_t _heater_stat;
   struct proc_status_t _proc_stat;
+  struct temp_sensor_t _temp_stat;
   struct receipe_t _receipe;
   struct config_t _config;
 
-  unsigned long _last_temp_read = 0;
-  DallasTemperature* _temp_sensor;
-
   NewRemoteTransmitter* _rf_sender;
 
-  void update_sensor_temp();
-  void set_sensor_resolution();
-  void check_sensors();
+  void setWarning(const char* warnMsg) {
+    _proc_stat.has_warning = true;
+    strcpy_P(_proc_stat.warn_message, warnMsg);
+  }
+
+  void setError(const char* errMsg) {
+    _proc_stat.has_error = true;
+    strcpy_P(_proc_stat.err_message, errMsg);
+    debug(F("********************"));
+    debug(F("Error"));
+    debug(_proc_stat.err_message);
+    debug(F("********************"));
+  };
+  
+
+  void read_temp_sensor();
+  void setup_temp_sensor();
   
   void update_target_temp();
   void update_state_machine();
   void update_printable_name();
   void update_heater();
+
   void turn_on_heater();
   void turn_off_heater();
   void turn_on_heater_throttled();
@@ -178,7 +200,7 @@ private:
   void handle_second_wash();
 
   void start_rest_timer();
-  bool rest_timer_over();
+  bool is_rest_timer_over();
 };
 
 #endif /* BREWPROC_H_ */

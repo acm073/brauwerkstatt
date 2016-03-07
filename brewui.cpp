@@ -26,10 +26,37 @@ void BrewUi::update_ui()
   int clicks = _encoder->readClicks();
   int steps = _encoder->readSteps();
   int holds = _encoder->readHolds();
-
   int menu_idx = _menu_ptr;
-  
-  if (!_brew_process->isRunning())
+
+  // show output on serial only every 5 seconds
+  bool serial = false;
+  if(millis() - last_print_ui > 5000)
+  {
+    serial = true;
+    last_print_ui = millis();
+  }
+
+  if (_brew_process->hasError())
+  {
+    
+  }
+  else if(_brew_process->hasWarning())
+  {
+    
+  }
+  else if (_brew_process->isRunning())
+  {
+    _is_menu_showing = false;
+    if (_brew_process->needConfirmation())
+    {
+      if (clicks > 0)
+      {
+          _brew_process->confirm();
+      }
+    }
+    display_process_state(serial);
+  }
+  else // menu mode
   {
     if (!_is_menu_showing)
     {
@@ -59,32 +86,7 @@ void BrewUi::update_ui()
         _brew_process->start_second_wash_process();
       }
     }
-  }
-  else
-  {
-    _is_menu_showing = false;
-    if (_brew_process->needConfirmation())
-    {
-      if (clicks > 0)
-      {
-          _brew_process->confirm();
-      }
-    }
-  }
 
-  bool serial = false;
-  if(millis() - last_print_ui > 5000)
-  {
-    serial = true;
-    last_print_ui = millis();
-  }
-
-  if(_brew_process->isRunning())
-  {
-    display_process_state(serial);
-  }
-  else
-  {
     display_menu(serial);
     update_menu_ptr(menu_idx);
   }
@@ -98,6 +100,7 @@ void BrewUi::encoder_isr()
 void BrewUi::display_menu(bool serial)
 {
   char buffer[21];
+
   create_status_line(buffer);
   _lcd->setCursor(0,0);
   _lcd->print(buffer);
@@ -109,13 +112,20 @@ void BrewUi::display_menu(bool serial)
 
   if(serial)
   {
-    debug(F("--------------------"));
-    debug(buffer);
-    debug(F("Klick zum starten"));
-    debug(F(""));
-    debug(F(""));
-    debug(F("--------------------"));
-    Serial.flush();
+    if (strcmp(_serial_lines[1], _lines[1]) != 0
+     || strcmp(_serial_lines[2], _lines[2]) != 0
+     || strcmp(_serial_lines[3], _lines[3]) != 0)
+    {
+      debug(F("--------------------"));
+      debug(buffer);
+      debug(_lines[1]);
+      debug(_lines[2]);
+      debug(_lines[3]);
+      debug(F("--------------------"));
+      strcpy(_serial_lines[1], _lines[1]);
+      strcpy(_serial_lines[2], _lines[2]);
+      strcpy(_serial_lines[3], _lines[3]);
+    }
   }
 }
 

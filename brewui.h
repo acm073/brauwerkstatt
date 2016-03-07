@@ -21,6 +21,8 @@ public:
 
 private:
   char _lines[4][21];
+  char _serial_lines[4][21];
+  
   int _menu_ptr = 1;
   bool _is_menu_showing = false;
 
