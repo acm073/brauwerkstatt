@@ -39,7 +39,8 @@ public:
   void load_receipe();
 
   void start_mash_process();
-  void start_second_wash_process(); // Nachguss
+  void start_second_wash_process();
+  void start_boil_process();
   void stop_process();
   void update_process();
 

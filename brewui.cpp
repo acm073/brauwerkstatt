@@ -80,7 +80,7 @@ void BrewUi::update_ui()
     }
     else if(clicks > 0)
     {
-      debugnnl(F("Menu item selected at index"));
+      debugnnl(F("Menu item selected at index "));
       debug(_menu_ptr);
       switch(_menu_ptr)
       {
@@ -91,6 +91,13 @@ void BrewUi::update_ui()
       case 2:
         _brew_process->load_receipe();
         _brew_process->start_second_wash_process();
+        break;
+      case 3:
+        _brew_process->load_receipe();
+        _brew_process->start_boil_process();
+        break;
+      default:
+        break;
       }
     }
 
@@ -312,7 +319,7 @@ void BrewUi::update_line_P(const char* newText, int line_idx)
 
 void BrewUi::update_line(char* buffer, int line_idx)
 {
-  if (_menu_ptr == line_idx)
+  if(_current_screen == Screen::Menu && _menu_ptr == line_idx)
   {
     buffer[0] = '>';
   }

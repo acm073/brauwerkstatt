@@ -16,7 +16,7 @@
 // implementation for this behaviour is in the Encoder class
 #define INPUT_SERIAL 1
 // FAKE TEMP SENSOR means that the temperature routine always returns 42C
-#undef MOCK_TEMP_SENSOR
+#define MOCK_TEMP_SENSOR 1
 
 #ifdef __SD
 #include <SD.h>

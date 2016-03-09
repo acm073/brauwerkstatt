@@ -55,6 +55,11 @@ void BrewProcess::update_process()
   return;
 }
 
+void BrewProcess::start_boil_process()
+{
+  //TODO
+}
+
 void BrewProcess::start_second_wash_process()
 {
   if (!_receipe.loaded)
