@@ -1,4 +1,3 @@
-
 /*
  * Hardware
  *
@@ -154,28 +153,29 @@ void setup() {
 
 }
 
+int count = 0;
+unsigned long start = 0;
+unsigned long ui_duration = 0;
+unsigned long proc_duration = 0;
 void loop()
 {
-  // Scheduling loop. Wakes up every 10ms, runs ui update every 5th time and brew process update every 500th time
-  // counter overflow does not matter
-  int count = 0;
-  for (;;)
+  start = micros();
+  brewUi.update_ui();
+  ui_duration += (micros() - start);
+
+  start = micros();  
+  brewProc.update_process();
+  proc_duration += (micros() - start);
+
+  ++count;
+
+  if (count == 200)
   {
-    if (count % 5 == 0)
-    {
-      brewUi.update_ui();
-    }
-    if (count % 5 == 0)
-    {
-      long start = millis();
-      brewProc.update_process();
-      long duration = millis() - start;
-      // debugnnl("Brew Task Update duration (ms) ");
-      // debug(duration);
-    }
-    
-    ++count;
-    delay(10);
+    // debugnnl(F("Avg ui update ")); debugnnl(ui_duration / 200); debug(F("us"));
+    // debugnnl(F("Avg proc update ")); debugnnl(proc_duration / 200); debug(F("us"));
+    ui_duration = 0;
+    proc_duration = 0;
+    count = 0;
   }
 }
 
