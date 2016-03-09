@@ -1,12 +1,9 @@
-#include <EEPROM.h>
 #include "brewproc.h"
+#include <Time.h>
+#include <EEPROM.h>
 
 /**
  * Constructor
- * - assign pins
- * - init temp sensor
- * - init relay module
- * - force heater relay off
  */
 BrewProcess::BrewProcess(DallasTemperature* temp_sens, NewRemoteTransmitter* rf_sender)
 {  
@@ -17,8 +14,14 @@ BrewProcess::BrewProcess(DallasTemperature* temp_sens, NewRemoteTransmitter* rf_
 //====================================================================================================
 // Public interface
 //====================================================================================================
+/**
+ * Init is called from setup() in main sketch.
+ */
 void BrewProcess::init()
 {
+  // state recovery from eeprom
+  recover_eeprom_state();
+
   // Init Temp Sensors
   setup_temp_sensor();
 
@@ -33,7 +36,7 @@ void BrewProcess::init()
 void BrewProcess::update_process()
 {
   // if we have an error, we do nothing until it has been reset.
-  if (_proc_stat.has_error)
+  if (_transient_proc_stat.has_error)
   {
     return;
   }
@@ -47,6 +50,7 @@ void BrewProcess::update_process()
     update_state_machine();
     update_heater();
     update_printable_name();
+    update_eeprom(false);
   }
   return;
 }
@@ -55,7 +59,7 @@ void BrewProcess::start_second_wash_process()
 {
   if (!_receipe.loaded)
   {
-    debug(F("Rezept nicht geladen"));
+    setWarning(PSTR("Kein Rezept"));
   }
   else
   {
@@ -64,9 +68,9 @@ void BrewProcess::start_second_wash_process()
       _proc_stat.current_phase = Phase::SecondWash;
       _proc_stat.current_step = Step::Start;
       
-      _proc_stat.proc_start = millis();
-      _proc_stat.phase_start = millis();
-      _proc_stat.current_rast = -1;
+      _proc_stat.process_start = now();
+      _proc_stat.phase_start = now();
+      _proc_stat.current_rest = -1;
       _proc_stat.running = true;
       _proc_stat.phase_char = 'N';
       update_process();
@@ -93,9 +97,9 @@ void BrewProcess::start_mash_process()
       _proc_stat.current_phase = Phase::MashIn;
       _proc_stat.current_step = Step::Start;
       
-      _proc_stat.proc_start = millis();
-      _proc_stat.phase_start = millis();
-      _proc_stat.current_rast = -1;
+      _proc_stat.process_start = now();
+      _proc_stat.phase_start = now();
+      _proc_stat.current_rest = -1;
       _proc_stat.running = true;
       _proc_stat.phase_char = 'M';
       update_process();
@@ -111,27 +115,27 @@ void BrewProcess::start_mash_process()
 
 void BrewProcess::load_receipe()
 {
-  _receipe.anz_rasten = 2;
+  _receipe.num_rests = 2;
 
-  _receipe.einmaisch_temp = 30;
-  _receipe.second_wash_temp = 43;
+  _receipe.mash_in_temp = 30;
+  _receipe.second_wash_temp = 41;
 
-  _receipe.rast_temp[0] = 37;
-  _receipe.rast_temp[1] = 41;
+  _receipe.rest_temp[0] = 37;
+  _receipe.rest_temp[1] = 41;
   //_receipe.rast_temp[2] = 72;
   //_receipe.rast_temp[3] = 78;
 
-  _receipe.rast_dauer[0] = 1;
-  _receipe.rast_dauer[1] = 1;
+  _receipe.rest_duration[0] = 1;
+  _receipe.rest_duration[1] = 1;
   //_receipe.rast_dauer[2] = 2;
   //_receipe.rast_dauer[3] = 2;
 
-  _receipe.wuerze_kochdauer = 90;
-  _receipe.anz_hopfengaben = 4;
-  _receipe.hopfengabe_zeit[0] = HOPFENGABE_VWH;
-  _receipe.hopfengabe_zeit[1] = 60;
-  _receipe.hopfengabe_zeit[2] = 15;
-  _receipe.hopfengabe_zeit[3] = HOPFENGABE_WHIRLPOOL;
+  _receipe.wort_boil_duration = 90;
+  _receipe.num_hops_add = 4;
+  _receipe.hops_boil_times[0] = HOP_ADD_FIRST_WORT;
+  _receipe.hops_boil_times[1] = 60;
+  _receipe.hops_boil_times[2] = 15;
+  _receipe.hops_boil_times[3] = HOP_ADD_WHIRLPOOL;
 
   _receipe.loaded = true;
 }
@@ -182,19 +186,17 @@ void BrewProcess::handle_second_wash()
     if(_temp_stat.current_temp >= _proc_stat.target_temp)
     {
       debug(F("Nachguss-Temperatur erreicht"));
-      step_transition(Step::UserPrompt, PSTR("Beenden?"));
+      step_transition(Step::UserPrompt);
     }
     break;
   case Step::UserPrompt:
-    if(_proc_stat.user_confirmed)
+    if(_transient_proc_stat.user_confirmed)
     {
       debug(F("User hat bestaetigt"));
       step_transition(Step::Terminated);
     }
     break;
   case Step::Terminated:
-    _proc_stat.running = false;
-    _proc_stat.phase_char = '-';
     break;
   default:
     debug(F("Invalid step"));
@@ -207,18 +209,16 @@ void BrewProcess::handle_mash_out()
   {
   case Step::Start:
     // nothing to initialize, move to Heat immediately
-    step_transition(Step::UserPrompt, PSTR("Beenden?"));
+    step_transition(Step::UserPrompt);
     break;
   case Step::UserPrompt:
-    if(_proc_stat.user_confirmed)
+    if(_transient_proc_stat.user_confirmed)
     {
       debug(F("User hat bestaetigt"));
       step_transition(Step::Terminated);
     }
     break;
   case Step::Terminated:
-    _proc_stat.running = false;
-    _proc_stat.phase_char = '-';
     break;
   default:
     debugnnl(F("Ungueltiger Step fuer Abmaischen: "));
@@ -238,8 +238,8 @@ void BrewProcess::handle_rests()
   switch(_proc_stat.current_step)
   {
   case Step::Start:
-    _proc_stat.current_rest_duration = _receipe.rast_dauer[_proc_stat.current_rast] * 60000;
-    _proc_stat.phase_start = millis();
+    _proc_stat.current_rest_duration = _receipe.rest_duration[_proc_stat.current_rest] * 60;
+    _proc_stat.phase_start = now();
     step_transition(Step::Heat);
     break;
   case Step::Heat:
@@ -248,7 +248,7 @@ void BrewProcess::handle_rests()
       debug(F("Rasttemperatur erreicht"));
       step_transition(Step::Hold);
       // expectation is to see current rest duration in display
-      _proc_stat.phase_start = millis();
+      _proc_stat.phase_start = now();
       start_rest_timer();
     }
     break;
@@ -256,11 +256,11 @@ void BrewProcess::handle_rests()
     if(is_rest_timer_over())
     {
       debugnnl(F("Ende Rast "));
-      debug(_proc_stat.current_rast);
-      if(_proc_stat.current_rast + 1 < _receipe.anz_rasten)
+      debug(_proc_stat.current_rest);
+      if(_proc_stat.current_rest + 1 < _receipe.num_rests)
       {
         // Last rest not reached, move to next rest
-        ++_proc_stat.current_rast;
+        ++_proc_stat.current_rest;
         step_transition(Step::Start);
       }
       else
@@ -295,16 +295,16 @@ void BrewProcess::handle_mash_in()
     {
       // reached target temp
       debug(F("Einmaischtemperatur erreicht"));
-      step_transition(Step::UserPrompt, PSTR("Weiter?"));
+      step_transition(Step::UserPrompt);
     }
     break;
   case Step::UserPrompt:
     // wait for confirmation, then transition to Phase::Rest
-    if(_proc_stat.user_confirmed)
+    if(_transient_proc_stat.user_confirmed)
     {
       debug(F("User hat bestaetigt"));
       phase_transition(Phase::Rest);
-      _proc_stat.current_rast = 0;
+      _proc_stat.current_rest = 0;
     }
     break;
   default:
@@ -316,10 +316,12 @@ void BrewProcess::handle_mash_in()
 void BrewProcess::phase_transition(Phase next_phase)
 {
   _proc_stat.current_phase = next_phase;
-  _proc_stat.phase_start = millis();
+  _proc_stat.phase_start = now();
   _proc_stat.current_step = Step::Start;
   _proc_stat.need_confirmation = false;
-  _proc_stat.user_confirmed = false;
+  _transient_proc_stat.user_confirmed = false;
+  // no need to call update_eeprom() here because every phase transition also comes with
+  // a step transition which then calls update_eeprom();
 }
 
 void BrewProcess::step_transition(Step next_step)
@@ -328,19 +330,19 @@ void BrewProcess::step_transition(Step next_step)
   if(next_step == Step::UserPrompt)
   {
     _proc_stat.need_confirmation = true;
-    _proc_stat.user_confirmed = false;
+    _transient_proc_stat.user_confirmed = false;
+  }
+  else if(next_step == Step::Terminated)
+  {
+    _proc_stat.running = false;
+    _proc_stat.phase_char = '-';
   }
   else
   {
     _proc_stat.need_confirmation = false;
-    _proc_stat.user_confirmed = false;    
+    _transient_proc_stat.user_confirmed = false;    
   }
-}
-
-void BrewProcess::step_transition(Step next_step, const char* prompt)
-{
-  step_transition(next_step);
-  strcpy(_proc_stat.user_prompt, prompt);
+  update_eeprom(true);
 }
 
 void BrewProcess::update_target_temp()
@@ -348,13 +350,16 @@ void BrewProcess::update_target_temp()
   switch(_proc_stat.current_phase)
   {
   case Phase::MashIn:
-    _proc_stat.target_temp = _receipe.einmaisch_temp;
+    _proc_stat.target_temp = _receipe.mash_in_temp;
     break;
   case Phase::Rest:
-    _proc_stat.target_temp = _receipe.rast_temp[_proc_stat.current_rast];
+    _proc_stat.target_temp = _receipe.rest_temp[_proc_stat.current_rest];
     break;
   case Phase::MashOut:
     _proc_stat.target_temp = -1;
+    break;
+  case Phase::SecondWash:
+    _proc_stat.target_temp = _receipe.second_wash_temp;
     break;
   case Phase::Boil:
     _proc_stat.target_temp = _config.heater_cook_temp;
@@ -369,39 +374,42 @@ void BrewProcess::update_printable_name()
   switch(_proc_stat.current_phase)
   {
   case Phase::MashIn:
-    strcpy(_proc_stat.phase_name, "Einmaischen");
+    strcpy(_transient_proc_stat.phase_name, "Einmaischen");
     break;
   case Phase::Rest:
-    sprintf(_proc_stat.phase_name, "Rast #%d", _proc_stat.current_rast + 1);
+    sprintf(_transient_proc_stat.phase_name, "Rast #%d", _proc_stat.current_rest + 1);
     break;
   case Phase::MashOut:
-    strcpy(_proc_stat.phase_name, "Abmaischen");
+    strcpy(_transient_proc_stat.phase_name, "Abmaischen");
     break;
   case Phase::Boil:
-    strcpy(_proc_stat.phase_name, "Kochen");
+    strcpy(_transient_proc_stat.phase_name, "Kochen");
     break;
   case Phase::SecondWash:
-    strcpy(_proc_stat.phase_name, "Nachguss");
+    strcpy(_transient_proc_stat.phase_name, "Nachguss");
+    break;
   default:
-   strcpy(_proc_stat.phase_name, "undef");
+   strcpy(_transient_proc_stat.phase_name, "undef");
    break;
   }
   
   switch(_proc_stat.current_step)
   {
   case Step::Heat:
-    strcpy(_proc_stat.step_name, "Heizen");
+    strcpy(_transient_proc_stat.step_name, "Heizen");
     break;
   case Step::Hold:
-    strcpy(_proc_stat.step_name, "Halten");
+    strcpy(_transient_proc_stat.step_name, "Halten");
     break;
   default:
-    strcpy(_proc_stat.step_name, "");
+    strcpy(_transient_proc_stat.step_name, "");
     break;
   }
 }
 
-
+// ====================================================
+// heater management
+// ====================================================
 /*
  * This function implements the heater control algorithm. For now it is a simple 2-point controller.
  * Temperature values below are default values, actual values are stored in config structure.
@@ -454,9 +462,6 @@ void BrewProcess::update_heater()
   }
 }
 
-// ====================================================
-// heater management
-// ====================================================
 void BrewProcess::turn_on_heater_throttled()
 {
   if(_heater_stat.on && millis() - _heater_stat.last_on > _config.throttled_on_ms)
@@ -475,8 +480,8 @@ void BrewProcess::turn_off_heater()
   {
     _heater_stat.on = false;
     _heater_stat.last_off = millis();
+    _rf_sender->sendUnit(RC_OUTLET_HEATER, false);
   }
-  _rf_sender->sendUnit(RC_OUTLET_HEATER, false);
 }
 
 void BrewProcess::turn_on_heater()
@@ -485,8 +490,8 @@ void BrewProcess::turn_on_heater()
   {
     _heater_stat.on = true;
     _heater_stat.last_on = millis();
+    _rf_sender->sendUnit(RC_OUTLET_HEATER, true);
   }
-  _rf_sender->sendUnit(RC_OUTLET_HEATER, true);
 }
 
 // ====================================================
@@ -494,11 +499,15 @@ void BrewProcess::turn_on_heater()
 // ====================================================
 void BrewProcess::read_temp_sensor ()
 {
+#ifdef MOCK_TEMP_SENSOR
+  _temp_stat.current_temp = 42.0F;
+  return;
+#endif
   if(_temp_stat.error_count > 3 && _temp_stat.error_count < 5)
   {
     setup_temp_sensor();
   }
-  else if (_temp_stat.error_count > 5)
+  else if (_temp_stat.error_count >= 5)
   {
     setError(PSTR("Temp Sensor Error"));
   }
@@ -564,11 +573,114 @@ void BrewProcess::setup_temp_sensor()
 
 void BrewProcess::start_rest_timer()
 {
-  _proc_stat.rest_timer = millis();
+  _proc_stat.rest_start = now();
 }
 
 bool BrewProcess::is_rest_timer_over()
 {
-  return millis() - _proc_stat.rest_timer > _proc_stat.current_rest_duration;
+  return now() - _proc_stat.rest_start > _proc_stat.current_rest_duration;
+}
+
+// ====================================================
+// saving and recovering state to/from EEPROM
+// ====================================================
+void BrewProcess::recover_eeprom_state()
+{
+  unsigned long mgx;
+  byte* p = (byte*)(void*)&mgx;
+  int mgx_offset = EEPROM_PROC_STAT_OFFSET + sizeof(_proc_stat) - sizeof(mgx);  
+
+  read_eeprom(p, sizeof(mgx), mgx_offset);
+  
+  if (mgx == _proc_stat.VERSION)
+  {
+    debug(F("Reading EEPROM"));
+    p = (byte*)(void*)&_proc_stat;
+    read_eeprom(p, sizeof(_proc_stat), EEPROM_PROC_STAT_OFFSET);
+    p = (byte*)(void*)&_receipe;
+    read_eeprom(p, sizeof(_receipe), EEPROM_RECEIPE_OFFSET);
+    setTime(_proc_stat.eeprom_saved_timestamp);
+    update_process();
+
+    debug_state();
+  }
+}
+
+void BrewProcess::update_eeprom(bool force)
+{
+  if(now() - _proc_stat.eeprom_saved_timestamp > EEPROM_UPDATE_INTERVAL || force)
+  {
+    debug(F("Updating EEPROM"));
+    debug_state();
+    _proc_stat.eeprom_saved_timestamp = now();
+
+    write_eeprom((byte *)(void *)&_proc_stat, sizeof(_proc_stat), EEPROM_PROC_STAT_OFFSET);
+    write_eeprom((byte *)(void *)&_receipe, sizeof(_receipe), EEPROM_RECEIPE_OFFSET);
+  }    
+}
+
+void BrewProcess::read_eeprom(byte* data, int size, int offset)
+{
+  byte* p = data;
+  
+  for(int i = 0; i < size; i++)
+  {
+    *p = EEPROM.read(offset + i);
+    p++;
+  }
+}
+
+void BrewProcess::write_eeprom(byte* data, int size, int offset)
+{
+  unsigned long start = millis();
+  int i = 0;
+  byte* p = data;
+  byte b;
+  int unchanged = 0;
+  int changed = 0;
+  for(; i < size; i++)
+  {
+    if ((b = EEPROM.read(offset + i)) == *p)
+    {
+      unchanged++;
+    }
+    else
+    {
+      changed++;
+      EEPROM.write(offset + i, *p);
+      if ((b = EEPROM.read(offset + i)) != *p)
+      {
+        char buffer[20];
+        sprintf_P(buffer, PSTR("ERR: Exp %02x Was %02x"), *p, b);
+        debug(buffer);
+      }
+    }
+    p++;
+  }
+  debugnnl(F("Wrote ")); debugnnl(i); debugnnl(" bytes in "); debugnnl(millis() - start); debugnnl(" ms, ");
+  debugnnl(unchanged); debugnnl(F(" unchanged and ")); debugnnl(changed); debug(F(" changed"));
+}
+
+void BrewProcess::debug_state()
+{
+  debugnnl(F("  running ")); debug(_proc_stat.running);
+  debugnnl(F("  phase_char ")); debug(_proc_stat.phase_char);
+
+  debugnnl(F("  process_start ")); debug(_proc_stat.process_start);
+  debugnnl(F("  phase_start ")); debug(_proc_stat.phase_start);
+  debugnnl(F("  rest_start ")); debug(_proc_stat.rest_start);
+
+  debugnnl(F("  current_phase ")); debug(_proc_stat.current_phase);
+  debugnnl(F("  current_step ")); debug(_proc_stat.current_step);
+  debugnnl(F("  current_rest ")); debug(_proc_stat.current_rest);
+  debugnnl(F("  current_rest_duration ")); debug(_proc_stat.current_rest_duration);
+
+  debugnnl(F("  need_confirmation ")); debug(_proc_stat.need_confirmation);
+
+  debugnnl(F("  target_temp ")); debug(_proc_stat.target_temp);
+
+  debugnnl(F("  eeprom_saved_timestamp ")); debug(_proc_stat.eeprom_saved_timestamp);
+
+  debugnnl(F("  VERSION ")); debug(_proc_stat.VERSION);
 }
 

@@ -1,3 +1,4 @@
+
 /*
  * Implementation of the Brew Process
  * 
@@ -11,6 +12,7 @@
 
 #include <DallasTemperature.h>
 #include <NewRemoteTransmitter.h>
+#include <Time.h>
 
 #define __DEBUG
 #include "debug.h"
@@ -22,10 +24,10 @@
 // - receipe
 // - proc_status
 // ==============================================
-#define MAX_RASTEN 10
-#define MAX_HOPFENGABEN 10
-#define HOPFENGABE_VWH 10000 // MAGIC Wert für Vorderwürzehopfung
-#define HOPFENGABE_WHIRLPOOL 10001 // MAGIC Wert für Whirlpool-Hopfung
+#define MAX_RESTS 10
+#define MAX_HOP_ADDITIONS 10
+#define HOP_ADD_FIRST_WORT 10000 // MAGIC value for first-wort hopping
+#define HOP_ADD_WHIRLPOOL 10001 // MAGIC value for whirlpool hopping
 
 class BrewProcess {
 public:
@@ -44,19 +46,19 @@ public:
   bool isRunning() { return _proc_stat.running; };
   char getPhaseChar() { return _proc_stat.phase_char; };
   bool needConfirmation() { return _proc_stat.need_confirmation; };
-  void confirm() { _proc_stat.user_confirmed = true; };
+  void confirm() { _transient_proc_stat.user_confirmed = true; };
   float getCurrentTemp() { return _temp_stat.current_temp; };
   float getTargetTemp() { return _proc_stat.target_temp; };
-  char* getPhaseName() { return _proc_stat.phase_name; };
-  char* getStepName() { return _proc_stat.step_name; };
-  char* getPrompt() { return _proc_stat.user_prompt; };
+  char* getPhaseName() { return _transient_proc_stat.phase_name; };
+  char* getStepName() { return _transient_proc_stat.step_name; };
+  const char* getPrompt() { return _transient_proc_stat.user_prompt; };
   unsigned long phaseStart() { return _proc_stat.phase_start; };
-  unsigned long procStart() { return _proc_stat.proc_start; };
+  unsigned long procStart() { return _proc_stat.process_start; };
   unsigned long phaseRest()
   {
     if (_proc_stat.current_phase == Phase::Rest && _proc_stat.current_step == Step::Hold)
     {
-      unsigned long d = millis() - _proc_stat.rest_timer;
+      unsigned long d = now() - _proc_stat.rest_start;
       if (d < _proc_stat.current_rest_duration)
       {
         return _proc_stat.current_rest_duration - d;
@@ -73,68 +75,100 @@ public:
   };
   bool heaterOn() { return _heater_stat.on; };
 
-  bool hasError() { return _proc_stat.has_error; };
-  bool hasWarning() { return _proc_stat.has_warning; };
-  char* getErrorMessage() { return _proc_stat.err_message; };
-  char* getWarningMessage() { return _proc_stat.warn_message; };
-  void resetError() { _proc_stat.has_error = false; };
-  void resetWarning() { _proc_stat.has_warning = false; };
+  bool hasError() { return _transient_proc_stat.has_error; };
+  bool hasWarning() { return _transient_proc_stat.has_warning; };
+  char* getErrorMessage() { return _transient_proc_stat.err_message; };
+  char* getWarningMessage() { return _transient_proc_stat.warn_message; };
+  void resetError() { _transient_proc_stat.has_error = false; };
+  void resetWarning() { _transient_proc_stat.has_warning = false; };
 
 private:
   enum Phase { MashIn, Rest, MashOut, SecondWash, Boil };
   enum Step { Start, Heat, Hold, UserPrompt, Terminated};
 
+  // ==========================================================
+  // Heater status
+  // ==========================================================
   struct heater_stat_t {
     bool on = false;
     unsigned long last_on = 0; //millis of last on event
     unsigned long last_off = 0; // millis of last off event
   };
 
+  // ==========================================================
+  // Process status, "permanent" part
+  // this piece gets saved to EEPROM every minute
+  // and contains all that is required to re-start the process
+  // after e.g. power failure
+  // ==========================================================
   struct proc_status_t {
     bool running = false;
     char phase_char = '-';
-    char step_name[20];
-    char phase_name[20];
 
-    unsigned long proc_start = 0; // millis() zum Start des Brauvorgangs
-    unsigned long phase_start; // millis() zum Start der aktuellen Phase
-  
-    Phase current_phase; // nummer der aktuellen Phase
+    // start of current process in seconds, as returned by now()
+    unsigned long process_start;
+    // start of current phase in seconds as returned by now()
+    unsigned long phase_start;
+    // start of current rest in seconds, as returned by now()
+    // this value is only valid if current phase is Phase::Rest 
+    unsigned long rest_start;
+
+    Phase current_phase;
     Step current_step;
-    byte current_rast; // aktuelle rast
-    unsigned long current_rest_duration; // duration for rest phases in minutes
-  
-    float target_temp; // Temperatur für die aktuelle Phase
+    byte current_rest;
+    unsigned int current_rest_duration; // duration for rest phase in seconds
 
-    unsigned long rest_timer;
-    
     bool need_confirmation = false; // for UI interaction: signal that user confirmation is required
+
+    float target_temp; // target temperature for current phase
+
+    // this value is also re-used as current system time after restore
+    unsigned long eeprom_saved_timestamp = 0;
+
+    // defined in brauwerkstatt.h
+    unsigned long VERSION = PROC_STAT_VERSION;
+  };
+
+  // ==========================================================
+  // Process status, "transient" part
+  // this part does not get saved to EEPROM and is re-computed
+  // from the permanent part after a restart.
+  // Errors and warnings are reset after restart.
+  // ==========================================================
+  struct transient_proc_stat_t {
+    char step_name[21];
+    char phase_name[21];
+
     bool user_confirmed = false; // for UI interaction: user has confirmed a user prompt
     bool user_cancelled = false; // for UI interaction: user has cancelled brewing process
     
-    char user_prompt[20];
+    const char user_prompt[4] = "Ok?";
 
     // error handling
     bool has_error = false;
     bool has_warning = false;
     char err_message[21];
     char warn_message[21];
+
   };
 
+  // ==========================================================
+  // The receipe is also saved to EEPROM
+  // ==========================================================
   struct receipe_t {
     bool loaded = false;
   
-    byte einmaisch_temp;
+    byte mash_in_temp;
 
     byte second_wash_temp;
   
-    byte anz_rasten; // Anzahl Rasten, max. MAX_RESTS
-    byte rast_temp[MAX_RASTEN]; // Rast-Temperaturen in Grad Celsius
-    byte rast_dauer[MAX_RASTEN]; // Rast-Dauern in Minuten
+    byte num_rests; // number of rests
+    byte rest_temp[MAX_RESTS]; // rest temperature in C
+    byte rest_duration[MAX_RESTS]; // rest duration in min
   
-    int wuerze_kochdauer;
-    byte anz_hopfengaben; // Anzahl Hopfengaben, max. MAX_HOP_ADD
-    int hopfengabe_zeit[MAX_HOPFENGABEN]; // Kochzeiten für Hopfen, wobei HOPFENGABE_VWH (10000) und HOPFENGABE_WHIRLPOOL (10001) gesondert behandelt werden
+    unsigned int wort_boil_duration; // in minutes
+    byte num_hops_add; // number of hops additions
+    unsigned int hops_boil_times[MAX_HOP_ADDITIONS]; // Kochzeiten für Hopfen, wobei HOPFENGABE_VWH (10000) und HOPFENGABE_WHIRLPOOL (10001) gesondert behandelt werden
   };
 
   struct config_t {
@@ -158,26 +192,29 @@ private:
 
   struct heater_stat_t _heater_stat;
   struct proc_status_t _proc_stat;
+  struct transient_proc_stat_t _transient_proc_stat;
   struct temp_sensor_t _temp_stat;
   struct receipe_t _receipe;
   struct config_t _config;
 
   NewRemoteTransmitter* _rf_sender;
-
+  
   void setWarning(const char* warnMsg) {
-    _proc_stat.has_warning = true;
-    strcpy_P(_proc_stat.warn_message, warnMsg);
+    _transient_proc_stat.has_warning = true;
+    strcpy_P(_transient_proc_stat.warn_message, warnMsg);
+    debugnnl(F("WARN: ")); debug(_transient_proc_stat.warn_message);
   }
 
   void setError(const char* errMsg) {
-    _proc_stat.has_error = true;
-    strcpy_P(_proc_stat.err_message, errMsg);
+    _transient_proc_stat.has_error = true;
+    strcpy_P(_transient_proc_stat.err_message, errMsg);
     debug(F("********************"));
     debug(F("Error"));
-    debug(_proc_stat.err_message);
+    debug(_transient_proc_stat.err_message);
     debug(F("********************"));
   };
-  
+
+  void recover_eeprom_state();
 
   void read_temp_sensor();
   void setup_temp_sensor();
@@ -186,13 +223,13 @@ private:
   void update_state_machine();
   void update_printable_name();
   void update_heater();
+  void update_eeprom(bool force);
 
   void turn_on_heater();
   void turn_off_heater();
   void turn_on_heater_throttled();
   void phase_transition(Phase next_phase);
   void step_transition(Step next_step);
-  void step_transition(Step next_step, const char* prompt);
 
   void handle_mash_in();
   void handle_rests();
@@ -201,6 +238,10 @@ private:
 
   void start_rest_timer();
   bool is_rest_timer_over();
+
+  void write_eeprom(byte* data, int size, int offset);
+  void read_eeprom(byte* data, int size, int offset);
+  void debug_state();
 };
 
 #endif /* BREWPROC_H_ */
