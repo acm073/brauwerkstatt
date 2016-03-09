@@ -1,4 +1,5 @@
 #include <LiquidCrystal_I2C.h>
+#include <Time.h>
 #include "encoder.h"
 #include "brewproc.h"
 #include "encoder.h"
@@ -17,7 +18,8 @@ void BrewUi::init()
 {
   _lcd->init();
   _lcd->backlight();
-  update_line(" Brauwerkstatt v0.1", 1);
+  clear_screen();
+  update_line_P(PSTR(" Brauwerkstatt v0.1"), 1);
   delay(1500);
 }
 
@@ -38,7 +40,16 @@ void BrewUi::update_ui()
 
   if (_brew_process->hasError())
   {
-    
+    if(_current_screen == Screen::Error)
+    {
+      // only process events if error screen is already showing
+      if (clicks > 0)
+      {
+        _brew_process->resetError();
+      }
+    }
+    set_screen(Screen::Error);          
+    display_error(serial);
   }
   else if(_brew_process->hasWarning())
   {
@@ -46,7 +57,8 @@ void BrewUi::update_ui()
   }
   else if (_brew_process->isRunning())
   {
-    _is_menu_showing = false;
+    set_screen(Screen::Process);
+
     if (_brew_process->needConfirmation())
     {
       if (clicks > 0)
@@ -58,12 +70,7 @@ void BrewUi::update_ui()
   }
   else // menu mode
   {
-    if (!_is_menu_showing)
-    {
-      // force a screen clear when entering menu mode
-      _lcd->clear();
-      _is_menu_showing = true;
-    }
+    set_screen(Screen::Menu);
 
     if(steps != 0)
     {
@@ -97,6 +104,26 @@ void BrewUi::encoder_isr()
   _encoder->service();
 }
 
+void BrewUi::set_screen(Screen s)
+{
+  if (_current_screen != s)
+  {
+    clear_screen();
+    _current_screen = s;
+  }
+}
+
+void BrewUi::display_error(bool serial)
+{
+  update_line(_brew_process->getErrorMessage(), 1);
+  update_line_P(PSTR("        Ok?"), 3);
+
+  if (serial)
+  {
+    output_serial("", _lines[1], "", _lines[3]);
+  }
+}
+
 void BrewUi::display_menu(bool serial)
 {
   char buffer[21];
@@ -105,29 +132,37 @@ void BrewUi::display_menu(bool serial)
   _lcd->setCursor(0,0);
   _lcd->print(buffer);
 
-  update_line(PSTR(" Maischen"), 1);
-  update_line(PSTR(" Nachguss"), 2);
-  update_line(PSTR(" Kochen"), 3);
+  update_line_P(PSTR(" Maischen"), 1);
+  update_line_P(PSTR(" Nachguss"), 2);
+  update_line_P(PSTR(" Kochen"), 3);
+  update_menu_ptr(_menu_ptr);
+
 //  _lcd->print(F("  Manuell"));
 
   if(serial)
   {
-    if (strcmp(_serial_lines[1], _lines[1]) != 0
-     || strcmp(_serial_lines[2], _lines[2]) != 0
-     || strcmp(_serial_lines[3], _lines[3]) != 0)
-    {
-      debug(F("--------------------"));
-      debug(buffer);
-      debug(_lines[1]);
-      debug(_lines[2]);
-      debug(_lines[3]);
-      debug(F("--------------------"));
-      strcpy(_serial_lines[1], _lines[1]);
-      strcpy(_serial_lines[2], _lines[2]);
-      strcpy(_serial_lines[3], _lines[3]);
-    }
+    output_serial(buffer, _lines[1], _lines[2], _lines[3]);
   }
 }
+
+void BrewUi::output_serial(char* line0, char* line1, char* line2, char* line3)
+{
+  if (strcmp(_serial_lines[1], line1) != 0
+   || strcmp(_serial_lines[2], line2) != 0
+   || strcmp(_serial_lines[3], line3) != 0)
+  {
+    debug(F("--------------------"));
+    debug(line0);
+    debug(line1);
+    debug(line2);
+    debug(line3);
+    debug(F("--------------------"));
+    strcpy(_serial_lines[1], _lines[1]);
+    strcpy(_serial_lines[2], _lines[2]);
+    strcpy(_serial_lines[3], _lines[3]);
+  }
+}
+
 
 void BrewUi::display_process_state(bool serial)
 {
@@ -188,16 +223,16 @@ void BrewUi::display_process_state(bool serial)
   }
   else
   {
-    unsigned long phase_running = millis() - _brew_process->phaseStart();
+    unsigned long phase_running = now() - _brew_process->phaseStart();
     unsigned long phase_rest = _brew_process->phaseRest();
     
-    int phase_min = (int)(phase_running / 60000L);
-    int phase_sec = (int)(phase_running / 1000L % 60L);
+    int phase_min = numberOfMinutes(phase_running);
+    int phase_sec = numberOfSeconds(phase_running);
     
     if (phase_rest > 0)
     {
-      int rest_min = (int)(phase_rest / 60000L);
-      int rest_sec = (int)(phase_rest / 1000L % 60L);
+      int rest_min = numberOfMinutes(phase_rest);
+      int rest_sec = numberOfSeconds(phase_rest);
       sprintf_P(buffer, PSTR("%02d:%02d (Rest %02d:%02d)"), phase_min, phase_sec, rest_min, rest_sec);
     }
     else
@@ -218,10 +253,10 @@ void BrewUi::display_process_state(bool serial)
 
 void BrewUi::create_status_line(char* strbuf)
 {
-  unsigned long proc_running = millis() - _brew_process->procStart();
-  int run_hrs = (int)(proc_running / 60000L / 60L);
-  int run_min = (int)(proc_running / 60000L % 60L);
-  int run_sec = (int)(proc_running / 1000L % 60L);
+  unsigned long proc_running = now() - _brew_process->procStart();
+  int run_hrs = numberOfHours(proc_running);
+  int run_min = numberOfMinutes(proc_running);
+  int run_sec = numberOfSeconds(proc_running);
   float current_temp = _brew_process->getCurrentTemp();
   int temp_deg = (int)current_temp;
   int temp_frac = ((int)(current_temp * 10.0F)) % 10;
@@ -232,27 +267,60 @@ void BrewUi::create_status_line(char* strbuf)
       temp_deg, temp_frac, (char)223);  
 }
 
-void BrewUi::update_line(const char* newText, int line_idx)
+/**
+ * Clear the screen. Sets the background buffer for LCD and Serial to empty strings.
+ */
+void BrewUi::clear_screen()
+{
+  for (int i = 0; i < LCD_LINES; i++)
+  {
+    _lines[i][0] = '\0';
+    _serial_lines[i][0] = '\0';
+  }
+  _lcd->clear();
+}
+
+/**
+ * Update the screen in lines.
+ */
+void BrewUi::update_screen(char** lines, byte progmem_mask)
+{
+  // print out all lines
+  for (int i = 0; i < LCD_LINES; i++)
+  {
+    if(progmem_mask & (1 << i))
+    {
+      update_line_P(lines[i], i);
+    }
+    else
+    {
+      update_line(lines[i], i);
+    }
+  }
+
+  // update menu pointer
+  
+  // update scroll symbols
+}
+
+void BrewUi::update_line_P(const char* newText, int line_idx)
 {
   char buffer[21];
   strcpy_P(buffer, newText);
-  
-  if (line_idx + 1 > LCD_LINES)
-  {
-    debug(F("Invalid line index"));
-    return;
-  }
+  update_line(buffer, line_idx);  
+}
 
-  if (_is_menu_showing && line_idx == _menu_ptr)
+void BrewUi::update_line(char* buffer, int line_idx)
+{
+  if (_menu_ptr == line_idx)
   {
     buffer[0] = '>';
   }
-
   _lcd->setCursor(0, line_idx);
   _lcd->print(buffer);
 
   // erase rest of line
-  for (int pos = strlen(newText); pos < strlen(_lines[line_idx]); pos++)
+  for (int pos = strlen(buffer); pos < strlen(_lines[line_idx]); pos++)
   {
     _lcd->setCursor(pos, line_idx);
     _lcd->print(" ");
@@ -265,6 +333,14 @@ void BrewUi::update_menu_ptr(int menu_idx)
 {
   if(_menu_ptr != menu_idx)
   {
+    if (_current_screen == Screen::Menu)
+    {
+      if (strlen(_lines[menu_idx]) == 0)
+      {
+        _lines[menu_idx][1] = '\0';
+      }
+      _lines[menu_idx][0] = '>';
+    }
     // clear menu char at current position
     _lcd->setCursor(0, _menu_ptr);
     _lcd->print(" ");

@@ -20,11 +20,13 @@ public:
   void encoder_isr();
 
 private:
-  char _lines[4][21];
-  char _serial_lines[4][21];
-  
+  enum Screen { Error, Warning, Menu, Process, Splash };
+
+  Screen _current_screen = Screen::Splash;
+  // display is a 4x20 LCD and is managed in lines.
+  char _lines[LCD_LINES][LCD_COLS + 1];
+  char _serial_lines[LCD_LINES][LCD_COLS + 1];
   int _menu_ptr = 1;
-  bool _is_menu_showing = false;
 
   BrewProcess* _brew_process;
   LiquidCrystal_I2C* _lcd;
@@ -34,10 +36,18 @@ private:
 
   void display_process_state(bool serial);
   void display_menu(bool serial);
-  void create_status_line(char* strbuf);
+  void display_error(bool serial);
+  void display_warning(bool serial);
 
-  void update_line(const char* newText, int line);
+  void clear_screen();
+  void set_screen(Screen s);
+  void create_status_line(char* strbuf);
+  void update_screen(char** lines, byte progmem_mask);
+  void update_line_P(const char* newText, int line);
+  void update_line(char* buffer, int line);
   void update_menu_ptr(int menu_idx);
+
+  void output_serial(char* line0, char* line1, char* line2, char* line3);
 };
 
 #endif /* __UI_H */
