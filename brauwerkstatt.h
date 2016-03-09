@@ -15,7 +15,8 @@
 // reads a char and emulates encoder like this:
 // implementation for this behaviour is in the Encoder class
 #define INPUT_SERIAL 1
-
+// FAKE TEMP SENSOR means that the temperature routine always returns 42C
+#undef MOCK_TEMP_SENSOR
 
 #ifdef __SD
 #include <SD.h>
@@ -43,7 +44,7 @@
 #define RF_TRANSMITTER_PIN 8
 #define RF_TRANSMITTER_ID 123
 #define RF_TRANSMITTER_PULSE_LENGTH_US 260
-#define RF_TRANSMITTER_REPEATS 3 // actual repeats are 2^REPEATS
+#define RF_TRANSMITTER_REPEATS 2 // actual repeats are 2^REPEATS
 #define RC_OUTLET_HEATER 1 // Remote Control Outlet ID of heater outlet
 
 // 4. SD Card
@@ -57,6 +58,12 @@
 // 6. WIFI
 #define WIFI_BAUD_RATE 115200
 #define WIFI_RESET_PIN A0
+
+// 7. EEPROM
+#define EEPROM_PROC_STAT_OFFSET 32
+#define EEPROM_RECEIPE_OFFSET 80
+#define EEPROM_UPDATE_INTERVAL 120
+#define PROC_STAT_VERSION 0xBEEA0001UL
 
 // set to 5000us for serial
 // set to 1000us for real encoder
