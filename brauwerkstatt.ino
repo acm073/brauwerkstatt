@@ -136,7 +136,7 @@ void setup() {
 
   // Init SD Card
 #ifdef __SD
-  if (!SD.begin(SD_CS)) {
+  if (!SD.begin(SD_CS_PIN)) {
     debug(F("failed to init SD"));
   }
 #endif

@@ -9,8 +9,8 @@
 #define BRAUWERKSTATT_H_
 
 // Feature Toggles
-#undef __SD   // SD Card
-#undef __WIFI // Wifi
+#define __SD   // SD Card
+#undef __WIFI
 // define if input happens via serial line
 // reads a char and emulates encoder like this:
 // implementation for this behaviour is in the Encoder class

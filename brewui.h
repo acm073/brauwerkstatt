@@ -25,6 +25,7 @@ private:
   Screen _current_screen = Screen::Splash;
   // display is a 4x20 LCD and is managed in lines.
   char _lines[LCD_LINES][LCD_COLS + 1];
+  
   char _serial_lines[LCD_LINES][LCD_COLS + 1];
   int _menu_ptr = 1;
 
@@ -34,17 +35,16 @@ private:
 
   unsigned long last_print_ui = 0;
 
-  void display_process_state(bool serial);
-  void display_menu(bool serial);
-  void display_error(bool serial);
-  void display_warning(bool serial);
+  void display_process_state();
+  void display_menu();
+  void display_error();
+  void display_warning();
 
   void clear_screen();
   void set_screen(Screen s);
   void create_status_line(char* strbuf);
-  void update_screen(char** lines, byte progmem_mask);
-  void update_line_P(const char* newText, int line);
-  void update_line(char* buffer, int line);
+  void update_screen(const char* line0, const char* line1, const char* line2, const char* line3, byte pgmem_mask);
+  void update_line(const char* buffer, int line, bool scrollUp, bool scrollDown, bool menuPtr);
   void update_menu_ptr(int menu_idx);
 
   void output_serial(char* line0, char* line1, char* line2, char* line3);
