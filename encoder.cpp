@@ -1,4 +1,4 @@
-#define __DEBUG 1
+#undef __DEBUG
 
 #include "debug.h"
 #include "brauwerkstatt.h"

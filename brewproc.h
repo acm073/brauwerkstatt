@@ -14,7 +14,7 @@
 #include <NewRemoteTransmitter.h>
 #include <Time.h>
 
-#define __DEBUG
+#undef __DEBUG
 #include "debug.h"
 
 #include "brauwerkstatt.h"
@@ -24,8 +24,8 @@
 // - receipe
 // - proc_status
 // ==============================================
-#define MAX_RESTS 10
-#define MAX_HOP_ADDITIONS 10
+#define MAX_RESTS 4
+#define MAX_HOP_ADDITIONS 6
 #define HOP_ADD_FIRST_WORT 10000 // MAGIC value for first-wort hopping
 #define HOP_ADD_WHIRLPOOL 10001 // MAGIC value for whirlpool hopping
 
@@ -50,8 +50,7 @@ public:
   void confirm() { _transient_proc_stat.user_confirmed = true; };
   float getCurrentTemp() { return _temp_stat.current_temp; };
   float getTargetTemp() { return _proc_stat.target_temp; };
-  char* getPhaseName() { return _transient_proc_stat.phase_name; };
-  char* getStepName() { return _transient_proc_stat.step_name; };
+  char* getDisplayName() { return _transient_proc_stat.display_name; };
   const char* getPrompt() { return _transient_proc_stat.user_prompt; };
   unsigned long phaseStart() { return _proc_stat.phase_start; };
   unsigned long procStart() { return _proc_stat.process_start; };
@@ -78,8 +77,7 @@ public:
 
   bool hasError() { return _transient_proc_stat.has_error; };
   bool hasWarning() { return _transient_proc_stat.has_warning; };
-  char* getErrorMessage() { return _transient_proc_stat.err_message; };
-  char* getWarningMessage() { return _transient_proc_stat.warn_message; };
+  char* getMessage() { return _transient_proc_stat.message; };
   void resetError() { _transient_proc_stat.has_error = false; };
   void resetWarning() { _transient_proc_stat.has_warning = false; };
 
@@ -137,8 +135,7 @@ private:
   // Errors and warnings are reset after restart.
   // ==========================================================
   struct transient_proc_stat_t {
-    char step_name[21];
-    char phase_name[21];
+    char display_name[21];
 
     bool user_confirmed = false; // for UI interaction: user has confirmed a user prompt
     bool user_cancelled = false; // for UI interaction: user has cancelled brewing process
@@ -148,9 +145,7 @@ private:
     // error handling
     bool has_error = false;
     bool has_warning = false;
-    char err_message[21];
-    char warn_message[21];
-
+    char message[21];
   };
 
   // ==========================================================
@@ -202,16 +197,16 @@ private:
   
   void setWarning(const char* warnMsg) {
     _transient_proc_stat.has_warning = true;
-    strcpy_P(_transient_proc_stat.warn_message, warnMsg);
-    debugnnl(F("WARN: ")); debug(_transient_proc_stat.warn_message);
+    strcpy_P(_transient_proc_stat.message, warnMsg);
+    debugnnl(F("WARN: ")); debug(_transient_proc_stat.message);
   }
 
   void setError(const char* errMsg) {
     _transient_proc_stat.has_error = true;
-    strcpy_P(_transient_proc_stat.err_message, errMsg);
+    strcpy_P(_transient_proc_stat.message, errMsg);
     debug(F("********************"));
     debug(F("Error"));
-    debug(_transient_proc_stat.err_message);
+    debug(_transient_proc_stat.message);
     debug(F("********************"));
   };
 
@@ -222,7 +217,7 @@ private:
   
   void update_target_temp();
   void update_state_machine();
-  void update_printable_name();
+  void update_display_name();
   void update_heater();
   void update_eeprom(bool force);
 

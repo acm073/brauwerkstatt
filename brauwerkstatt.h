@@ -14,7 +14,7 @@
 // define if input happens via serial line
 // reads a char and emulates encoder like this:
 // implementation for this behaviour is in the Encoder class
-#define INPUT_SERIAL 1
+#undef INPUT_SERIAL
 // FAKE TEMP SENSOR means that the temperature routine always returns 42C
 #define MOCK_TEMP_SENSOR 1
 

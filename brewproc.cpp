@@ -49,7 +49,7 @@ void BrewProcess::update_process()
     update_target_temp();
     update_state_machine();
     update_heater();
-    update_printable_name();
+    update_display_name();
     update_eeprom(false);
   }
   return;
@@ -374,40 +374,39 @@ void BrewProcess::update_target_temp()
   }
 } 
 
-void BrewProcess::update_printable_name()
+void BrewProcess::update_display_name()
 {
   switch(_proc_stat.current_phase)
   {
   case Phase::MashIn:
-    strcpy(_transient_proc_stat.phase_name, "Einmaischen");
+    strcpy_P(_transient_proc_stat.display_name, PSTR("Einmaischen"));
     break;
   case Phase::Rest:
-    sprintf(_transient_proc_stat.phase_name, "Rast #%d", _proc_stat.current_rest + 1);
+    sprintf_P(_transient_proc_stat.display_name, PSTR("Rast #%d"), _proc_stat.current_rest + 1);
     break;
   case Phase::MashOut:
-    strcpy(_transient_proc_stat.phase_name, "Abmaischen");
+    strcpy_P(_transient_proc_stat.display_name, PSTR("Abmaischen"));
     break;
   case Phase::Boil:
-    strcpy(_transient_proc_stat.phase_name, "Kochen");
+    strcpy_P(_transient_proc_stat.display_name, PSTR("Kochen"));
     break;
   case Phase::SecondWash:
-    strcpy(_transient_proc_stat.phase_name, "Nachguss");
+    strcpy_P(_transient_proc_stat.display_name, PSTR("Nachguss"));
     break;
   default:
-   strcpy(_transient_proc_stat.phase_name, "undef");
+   strcpy_P(_transient_proc_stat.display_name, PSTR("undef"));
    break;
   }
   
   switch(_proc_stat.current_step)
   {
   case Step::Heat:
-    strcpy(_transient_proc_stat.step_name, "Heizen");
+    strcat_P(_transient_proc_stat.display_name, PSTR("/Heizen"));
     break;
   case Step::Hold:
-    strcpy(_transient_proc_stat.step_name, "Halten");
+    strcat_P(_transient_proc_stat.display_name, PSTR("/Halten"));
     break;
   default:
-    strcpy(_transient_proc_stat.step_name, "");
     break;
   }
 }
@@ -662,7 +661,7 @@ void BrewProcess::write_eeprom(byte* data, int size, int offset)
     }
     p++;
   }
-  debugnnl(F("Wrote ")); debugnnl(i); debugnnl(" bytes in "); debugnnl(millis() - start); debugnnl(" ms, ");
+  debugnnl(F("Wrote ")); debugnnl(i); debugnnl(F(" bytes in ")); debugnnl(millis() - start); debugnnl(F(" ms, "));
   debugnnl(unchanged); debugnnl(F(" unchanged and ")); debugnnl(changed); debug(F(" changed"));
 }
 

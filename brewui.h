@@ -1,7 +1,8 @@
 #ifndef __UI_H
 #define __UI_H
 
-#define __DEBUG
+#undef __DEBUG
+
 #include "debug.h"
 #include "encoder.h"
 #include "Arduino.h"
@@ -23,10 +24,10 @@ private:
   enum Screen { Error, Warning, Menu, Process, Splash };
 
   Screen _current_screen = Screen::Splash;
-  // display is a 4x20 LCD and is managed in lines.
+
+  // LCD backing buffer
   char _lines[LCD_LINES][LCD_COLS + 1];
   
-  char _serial_lines[LCD_LINES][LCD_COLS + 1];
   int _menu_ptr = 1;
 
   BrewProcess* _brew_process;
@@ -43,11 +44,11 @@ private:
   void clear_screen();
   void set_screen(Screen s);
   void create_status_line(char* strbuf);
-  void update_screen(const char* line0, const char* line1, const char* line2, const char* line3, byte pgmem_mask);
+  void update_line_P(const char* buffer, int line, bool scrollUp, bool scrollDown, bool menuPtr);
   void update_line(const char* buffer, int line, bool scrollUp, bool scrollDown, bool menuPtr);
   void update_menu_ptr(int menu_idx);
 
-  void output_serial(char* line0, char* line1, char* line2, char* line3);
+  void output_serial();
 };
 
 #endif /* __UI_H */

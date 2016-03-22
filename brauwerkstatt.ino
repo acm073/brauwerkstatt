@@ -84,7 +84,7 @@
 // header file contains:
 // - feature toggles
 // - pin definitions
-#define __DEBUG
+#undef __DEBUG
 
 #include "brauwerkstatt.h"
 
@@ -93,6 +93,7 @@
 #include <DallasTemperature.h>
 #include <LiquidCrystal_I2C.h>
 #include <NewRemoteTransmitter.h>
+#include <EEPROM.h>
 
 #include "brewproc.h"
 #include "brewui.h"
@@ -133,6 +134,8 @@ void setup() {
   debugnnl(F("Timer1: ")); debug(sizeof(Timer1));
   debugnnl(F("BrewProc: ")); debug(sizeof(brewProc));
   debugnnl(F("BrewUi: ")); debug(sizeof(brewUi));
+  debugnnl(F("EEPROM: ")); debug(sizeof(EEPROM));
+  debugnnl(F("SD: ")); debug(sizeof(SD));
 
   // Init SD Card
 #ifdef __SD
@@ -141,16 +144,9 @@ void setup() {
   }
 #endif
 
-  // Init Wifi
-#ifdef __WIFI
-  Serial.begin(WIFI_BAUD_RATE);
-  wifi.begin();
-#endif
-
 #ifdef __DEBUG
   debug(F("Debug logging on HW Serial, ver 0002"));
 #endif
-
 }
 
 int count = 0;
