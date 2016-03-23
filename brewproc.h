@@ -1,8 +1,10 @@
 
+
 /*
  * Implementation of the Brew Process
  * 
  * The Brew Process is owner of the Temp Sensor and the Heater Relay
+ * and also of the SD card.
  */
 #ifndef BREWPROC_H_
 #define BREWPROC_H_
@@ -13,8 +15,9 @@
 #include <DallasTemperature.h>
 #include <NewRemoteTransmitter.h>
 #include <Time.h>
+#include <PetitFS.h>
 
-#undef __DEBUG
+#define __DEBUG
 #include "debug.h"
 
 #include "brauwerkstatt.h"
@@ -194,6 +197,8 @@ private:
   struct config_t _config;
 
   NewRemoteTransmitter* _rf_sender;
+
+  FATFS _sd_fs;
   
   void setWarning(const char* warnMsg) {
     _transient_proc_stat.has_warning = true;

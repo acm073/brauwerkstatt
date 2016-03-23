@@ -50,7 +50,11 @@ void BrewUi::update_ui()
   {
     set_screen(Screen::Process);
 
-    if (_brew_process->needConfirmation())
+    if(holds > 0)
+    {
+      _brew_process->stop_process();
+    }
+    else if (_brew_process->needConfirmation())
     {
       if (clicks > 0)
       {

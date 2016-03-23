@@ -9,7 +9,6 @@
 #define BRAUWERKSTATT_H_
 
 // Feature Toggles
-#define __SD   // SD Card
 #undef __WIFI
 // define if input happens via serial line
 // reads a char and emulates encoder like this:
@@ -17,10 +16,6 @@
 #undef INPUT_SERIAL
 // FAKE TEMP SENSOR means that the temperature routine always returns 42C
 #define MOCK_TEMP_SENSOR 1
-
-#ifdef __SD
-#include <SD.h>
-#endif
 
 #ifdef __WIFI
 #include <ESP8266wifi.h>
@@ -48,7 +43,8 @@
 #define RC_OUTLET_HEATER 1 // Remote Control Outlet ID of heater outlet
 
 // 4. SD Card
-#define SD_CS_PIN 10
+// SD_CS_PIN is defined in pff library, no need to set here
+//#define SD_CS_PIN 10
 
 // 5. Encoder
 #define ENC_A_PIN 2

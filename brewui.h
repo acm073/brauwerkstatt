@@ -1,7 +1,7 @@
 #ifndef __UI_H
 #define __UI_H
 
-#undef __DEBUG
+#define __DEBUG
 
 #include "debug.h"
 #include "encoder.h"

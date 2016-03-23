@@ -19,6 +19,12 @@ BrewProcess::BrewProcess(DallasTemperature* temp_sens, NewRemoteTransmitter* rf_
  */
 void BrewProcess::init()
 {
+    // Init SD Card
+  if (pf_mount(&_sd_fs) != FR_OK)
+  {
+    setError(PSTR("SD-Karten-Fehler"));
+  }
+
   // state recovery from eeprom
   recover_eeprom_state();
 
@@ -53,6 +59,13 @@ void BrewProcess::update_process()
     update_eeprom(false);
   }
   return;
+}
+
+void BrewProcess::stop_process()
+{
+  _proc_stat.running = false;
+  turn_off_heater();
+  update_eeprom(true);
 }
 
 void BrewProcess::start_boil_process()
@@ -120,6 +133,44 @@ void BrewProcess::start_mash_process()
 
 void BrewProcess::load_receipe()
 {
+  if(pf_open("REZEPT.TXT"))
+  {
+    setError(PSTR("REZEPT.TXT fehlt"));
+    return;
+  }
+
+  char buf[32];
+  char line[32];
+  int b = 0;
+  while(true)
+  {
+    UINT cnt;
+    pf_read(buf, sizeof(buf), &cnt);
+    if (cnt == 0)
+    {
+      break;
+    }
+    int i = 0;
+    for (; i < cnt; i++)
+    {
+      if(buf[i] == '\r' || buf[i] == '\n')
+      {
+        // line is finished, parse it
+        line[b] = '\0';
+        if (strlen(line) > 0)
+        {
+          debugnnl(F("rcpt_line: ")); debug(line);          
+        }
+        b = 0;
+      }
+      else
+      {
+        line[b] = buf[i];
+        b++;
+      }
+    }
+  }
+  
   _receipe.num_rests = 2;
 
   _receipe.mash_in_temp = 30;
@@ -601,10 +652,13 @@ void BrewProcess::recover_eeprom_state()
     debug(F("Reading EEPROM"));
     p = (byte*)(void*)&_proc_stat;
     read_eeprom(p, sizeof(_proc_stat), EEPROM_PROC_STAT_OFFSET);
-    p = (byte*)(void*)&_receipe;
-    read_eeprom(p, sizeof(_receipe), EEPROM_RECEIPE_OFFSET);
-    setTime(_proc_stat.eeprom_saved_timestamp);
-    update_process();
+    if(_proc_stat.running) // load previous receipe only if process was interrupted
+    {
+      p = (byte*)(void*)&_receipe;
+      read_eeprom(p, sizeof(_receipe), EEPROM_RECEIPE_OFFSET);
+      setTime(_proc_stat.eeprom_saved_timestamp);
+      update_process();
+    }
 
     debug_state();
   }
@@ -667,6 +721,7 @@ void BrewProcess::write_eeprom(byte* data, int size, int offset)
 
 void BrewProcess::debug_state()
 {
+  /*
   debugnnl(F("  running ")); debug(_proc_stat.running);
   debugnnl(F("  phase_char ")); debug(_proc_stat.phase_char);
 
@@ -686,5 +741,6 @@ void BrewProcess::debug_state()
   debugnnl(F("  eeprom_saved_timestamp ")); debug(_proc_stat.eeprom_saved_timestamp);
 
   debugnnl(F("  VERSION ")); debug(_proc_stat.VERSION);
+  */
 }
 
