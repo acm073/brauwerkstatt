@@ -59,7 +59,7 @@
 #define EEPROM_PROC_STAT_OFFSET 32
 #define EEPROM_RECEIPE_OFFSET 80
 #define EEPROM_UPDATE_INTERVAL 120
-#define PROC_STAT_VERSION 0xBEEA0001UL
+#define PROC_STAT_VERSION 0xBEEA0002UL
 
 // set to 5000us for serial
 // set to 1000us for real encoder
