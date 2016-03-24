@@ -140,11 +140,11 @@ void BrewProcess::load_receipe()
   }
 
   char buf[32];
-  char line[32];
+  char line[41];
   int b = 0;
   while(true)
   {
-    UINT cnt;
+    unsigned int cnt;
     pf_read(buf, sizeof(buf), &cnt);
     if (cnt == 0)
     {
@@ -159,18 +159,27 @@ void BrewProcess::load_receipe()
         line[b] = '\0';
         if (strlen(line) > 0)
         {
-          debugnnl(F("rcpt_line: ")); debug(line);          
+          if(!parse_receipe_line(line))
+          {
+            setError("Parse-Fehler");
+            return;
+          }
         }
         b = 0;
       }
       else
       {
+        if (b >= sizeof(line))
+        {
+          setError(PSTR("Zeile zu lange"));
+          return;
+        }
         line[b] = buf[i];
         b++;
       }
     }
   }
-  
+  /*
   _receipe.num_rests = 2;
 
   _receipe.mash_in_temp = 30;
@@ -192,8 +201,162 @@ void BrewProcess::load_receipe()
   _receipe.hops_boil_times[1] = 60;
   _receipe.hops_boil_times[2] = 15;
   _receipe.hops_boil_times[3] = HOP_ADD_WHIRLPOOL;
-
+  */
   _receipe.loaded = true;
+}
+
+bool BrewProcess::parse_receipe_line(char* line)
+{
+  debugnnl(F("rcpt_line: ")); debug(line);
+  if (line[0] == '#') return true; // skip comments
+  char key[12];
+  char val[9];
+  byte idx = 0; // rests and hops additions
+  bool after_eq = false;
+  bool val_is_number = true;
+  int num_val;
+  key[0] = '\0';
+  val[0] = '\0';
+  for (int k = 0; k < strlen(line); k++)
+  {
+    if (isspace(line[k])) continue;
+    if (isdigit(line[k]) && !after_eq)
+    {
+      idx = line[k] - '0';
+    }
+    if (line[k] == '=')
+    {
+      after_eq = true;
+      continue;
+    }
+    if (after_eq)
+    {
+      int len = strlen(val);
+      if (len >= sizeof(val))
+      {
+        debug(F("Value too long"));
+        return false;
+      }
+      val[len] = line[k];
+      val[len + 1] = '\0';
+      if (!isdigit(line[k])) val_is_number = false;
+    }
+    else
+    {
+      int len = strlen(key);
+      if (len >= sizeof(key))
+      {
+        debug(F("Key too long"));
+        return false;
+      }
+      key[len] = line[k];
+      key[len + 1] = '\0';
+    }
+  }
+  if (!after_eq)
+  {
+    debug(F("= missing"));
+    return false;
+  }
+  if (val_is_number)
+  {
+    num_val = atoi(val);
+  }
+
+  // enum ReceipeKey { Name, MashInTemp, Rests, RestTemp, RestDuration, SpargeTemp, BoilDuration, HopAdditions, HopBoilDuration };
+  ReceipeKey rcp_key;
+  if(strcmp_P(key, PSTR("name")) == 0) rcp_key = ReceipeKey::Name;
+  else if (strcmp_P(key, PSTR("einmaisch_t")) == 0) rcp_key = ReceipeKey::MashInTemp;
+  else if (strcmp_P(key, PSTR("rasten")) == 0) rcp_key = ReceipeKey::Rests;
+  else if (strcmp_P(key, PSTR("nachguss_t")) == 0) rcp_key = ReceipeKey::SpargeTemp;
+  else if (strcmp_P(key, PSTR("koch_d")) == 0) rcp_key = ReceipeKey::BoilDuration;
+  else if (strcmp_P(key, PSTR("hopfengaben")) == 0) rcp_key = ReceipeKey::HopAdditions;
+  else
+  {
+    // parse the dynamic entries
+    if (idx == 0) return false;
+    if (strncmp_P(key, PSTR("rast"), 4) == 0 &&
+      strlen(key) == 7 &&
+      key[4] - '0' == idx &&
+      key[5] == '_')
+    {
+      switch(key[6])
+      {
+      case 't':
+        rcp_key = ReceipeKey::RestTemp;
+        break;
+      case 'd':
+        rcp_key = ReceipeKey::RestDuration;
+        break;
+      default:
+        return false;
+      }
+    }
+    else if (strncmp_P(key, PSTR("hopfengabe"), 10) &&
+      strlen(key) == 11 &&
+      key[10] - '0' == idx)
+    {
+      rcp_key == ReceipeKey::HopBoilDuration;
+    }
+    else
+    {
+      return false;
+    }
+  }
+  if (rcp_key != ReceipeKey:: HopBoilDuration && rcp_key != ReceipeKey::Name && !val_is_number)
+  {
+    return false;
+  }
+  switch (rcp_key)
+  {
+  case ReceipeKey::Name:
+    strcpy(_receipe.name, val);
+    break;
+  case ReceipeKey::MashInTemp:
+    _receipe.mash_in_temp = num_val;
+    break;
+  case ReceipeKey::Rests:
+    _receipe.num_rests = num_val;
+    break;
+  case ReceipeKey::RestTemp:
+    if(idx < 1 || idx > _receipe.num_rests) return false;
+    _receipe.rest_temp[idx - 1] = num_val;
+    break;
+  case ReceipeKey::RestDuration:
+    if(idx < 1 || idx > _receipe.num_rests) return false;
+    _receipe.rest_duration[idx - 1] = num_val;
+    break;
+  case ReceipeKey::SpargeTemp:
+    _receipe.second_wash_temp = num_val;
+    break;
+  case ReceipeKey::BoilDuration:
+    _receipe.wort_boil_duration = num_val;
+    break;
+  case ReceipeKey::HopAdditions:
+    _receipe.num_hops_add = num_val;
+    break;
+  case ReceipeKey::HopBoilDuration:
+    if(idx < 1 || idx > _receipe.num_hops_add) return false;
+    if (val_is_number)
+    {
+      _receipe.hops_boil_times[idx - 1] = num_val;
+    }
+    else if(strcmp_P(val, PSTR("VW")) == 0)
+    {
+      _receipe.hops_boil_times[idx - 1] = HOP_ADD_FIRST_WORT;
+    }
+    else if(strcmp_P(val, PSTR("WP")) == 0)
+    {
+      _receipe.hops_boil_times[idx - 1] = HOP_ADD_WHIRLPOOL;
+    }
+    else
+    {
+      return false;
+    }
+    break;
+  }
+  
+  return true;
 }
 
 /*====================================================================================================

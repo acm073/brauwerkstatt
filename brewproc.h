@@ -27,7 +27,7 @@
 // - receipe
 // - proc_status
 // ==============================================
-#define MAX_RESTS 4
+#define MAX_RESTS 5
 #define MAX_HOP_ADDITIONS 6
 #define HOP_ADD_FIRST_WORT 10000 // MAGIC value for first-wort hopping
 #define HOP_ADD_WHIRLPOOL 10001 // MAGIC value for whirlpool hopping
@@ -87,6 +87,7 @@ public:
 private:
   enum Phase { MashIn, Rest, MashOut, SecondWash, Boil };
   enum Step { Start, Heat, Hold, UserPrompt, Terminated};
+  enum ReceipeKey { Name, MashInTemp, Rests, RestTemp, RestDuration, SpargeTemp, BoilDuration, HopAdditions, HopBoilDuration };
 
   // ==========================================================
   // Heater status
@@ -156,7 +157,8 @@ private:
   // ==========================================================
   struct receipe_t {
     bool loaded = false;
-  
+
+    char name[9];
     byte mash_in_temp;
 
     byte second_wash_temp;
@@ -216,6 +218,7 @@ private:
   };
 
   void recover_eeprom_state();
+  bool parse_receipe_line(char* line);
 
   void read_temp_sensor();
   void setup_temp_sensor();
